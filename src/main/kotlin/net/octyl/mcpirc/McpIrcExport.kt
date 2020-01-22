@@ -194,7 +194,7 @@ class McpIrcExport : CliktCommand(
                             // Expect one line for each line
                             while (true) {
                                 val line = withContext(Dispatchers.IO) { chat.readLine() }
-                                if (line.filterNot { it.category == CharCategory.CONTROL }
+                                if (finished && line.filterNot { it.category == CharCategory.CONTROL }
                                         .startsWith("=== MC 1.15.1: net/minecraft/util/text/event/ClickEvent.equals")) {
                                     // This is the reply to our key command
                                     logger.info { "[IRC Export] Detected final command output. Closing connection." }
