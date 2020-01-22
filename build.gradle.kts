@@ -3,9 +3,9 @@ import net.minecrell.gradle.licenser.LicenseExtension
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    val kt = "1.3.41"
+    val kt = "1.3.61"
     kotlin("jvm") version kt
-    id("com.techshroom.incise-blue") version "0.3.14"
+    id("com.techshroom.incise-blue") version "0.5.6"
     application
 }
 
@@ -13,7 +13,7 @@ application.mainClassName = "net.octyl.mcpirc.McpIrcExportKt"
 
 inciseBlue {
     util {
-        javaVersion = JavaVersion.VERSION_12
+        javaVersion = JavaVersion.VERSION_13
         enableJUnit5()
     }
     license()
@@ -32,20 +32,20 @@ tasks.withType<KotlinCompile> {
 
 dependencies {
     "implementation"(kotlin("stdlib-jdk8"))
-    "implementation"("io.github.microutils:kotlin-logging:1.7.4")
+    "implementation"("io.github.microutils:kotlin-logging:1.7.8")
     commonLib("ch.qos.logback", "logback", "1.2.3") {
         "implementation"(lib("core"))
         "implementation"(lib("classic"))
     }
-    commonLib("org.jetbrains.kotlinx", "kotlinx-coroutines", "1.3.0-RC2") {
+    commonLib("org.jetbrains.kotlinx", "kotlinx-coroutines", "1.3.3") {
         "implementation"(lib("core"))
         "implementation"(lib("jdk8"))
     }
-    "implementation"("org.jetbrains.kotlinx", "kotlinx-coroutines-io-jvm", "0.1.13")
+    "implementation"("org.jetbrains.kotlinx", "kotlinx-coroutines-io-jvm", "0.1.16")
     "implementation"("org.pircbotx", "pircbotx", "2.1")
-    "implementation"("com.github.ajalt", "clikt", "2.1.0")
+    "implementation"("com.github.ajalt", "clikt", "2.3.0")
 
-    commonLib("org.junit.jupiter", "junit-jupiter", "5.5.1") {
+    commonLib("org.junit.jupiter", "junit-jupiter", "5.6.0") {
         "testImplementation"(lib("api"))
         "testImplementation"(lib("params"))
         "testRuntime"(lib("engine"))
