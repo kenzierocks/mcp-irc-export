@@ -34,7 +34,6 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
-import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -43,8 +42,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,6 +60,8 @@ import org.pircbotx.hooks.events.IncomingChatRequestEvent
 import org.pircbotx.hooks.events.NickAlreadyInUseEvent
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import javax.net.ssl.SSLSocketFactory
 
 class McpIrcExport : CliktCommand(
@@ -84,11 +86,21 @@ class McpIrcExport : CliktCommand(
 
     override fun run() {
         val password = String(System.console().readPassword("NickServ password for $login: "))
-        val reader = Files.newBufferedReader(input)
-        val lines = reader.lineSequence().asFlow()
-            .onCompletion { withContext(Dispatchers.IO) { reader.close() } }
+
+        // in some cases `input` may not be a regular file, and may not allow double-reading
+        // e.g. pipe / input from terminal
+        val regularInput = ensureRegularFile()
+        val nLines = Files.lines(regularInput).use { it.count() }
+        val lines = flow {
+            Files.newBufferedReader(regularInput).useLines {
+                println("Emitting all...")
+                emitAll(it.asFlow())
+            }
+        }
             .flowOn(Dispatchers.IO)
-            .onEach { delay((1000.0 / commandRate.toDouble()).toLong()) }
+            .onEach {
+                delay((1000.0 / commandRate.toDouble()).toLong())
+            }
         val config = Configuration.Builder()
             .setName(name)
             .setLogin(login)
@@ -100,13 +112,25 @@ class McpIrcExport : CliktCommand(
                     config.socketFactory = SSLSocketFactory.getDefault()
                 }
             }
-            .addListener(McpListener(lines))
+            .addListener(McpListener(nLines, lines))
             .buildForServer(host, port)
         logger.info { "Connecting to $host/$port${if (ssl) "+" else ""}" }
         PircBotX(config).startBot()
     }
 
+    private fun ensureRegularFile(): Path {
+        return when {
+            Files.isRegularFile(input) -> input
+            else -> {
+                val file = Files.createTempFile("mcp-irc-export-commands", ".txt")
+                Files.copy(input, file, StandardCopyOption.REPLACE_EXISTING)
+                file
+            }
+        }
+    }
+
     private inner class McpListener(
+        private val nLines: Long,
         private val lines: Flow<String>
     ) : ListenerAdapter() {
         private val logger = KotlinLogging.logger { }
@@ -142,32 +166,53 @@ class McpIrcExport : CliktCommand(
             GlobalScope.launch(CoroutineName("DCC I/O")) {
                 try {
                     coroutineScope {
-                        val lineCount = atomic(0)
-                        launch(Dispatchers.IO) {
+                        launch {
+                            logger.info { "Sending $nLines lines to $target" }
+                            var sentLines = 0
                             lines.collect { line ->
                                 logger.info { "[DCC] $name: $line" }
-                                chat.sendLine(line)
-                                lineCount.getAndIncrement()
+                                withContext(Dispatchers.IO) {
+                                    chat.sendLine(line)
+                                }
+                                sentLines++
+                                val pcent = "%.2f".format((sentLines / nLines.toDouble()) * 100)
+                                logger.info { "Sent $sentLines/$nLines ($pcent%)" }
                             }
                             finished = true
+                            // Send out our special key command
+                            // This command has known output (unfortunately I couldn't find a way
+                            // to have MCPBot reply with output I give it, or this would be more
+                            // effective against command file interference)
+                            withContext(Dispatchers.IO) {
+                                chat.sendLine("!gm ClickEvent.equals 1.15.1")
+                            }
                             logger.info {
-                                "#### Transfer finished. Kill program when finished reading $target's responses."
+                                "[IRC Export] Transfer finished. Waiting for $target to reply with final command..."
                             }
                         }
-                        launch(Dispatchers.IO) {
+                        launch {
                             // Expect one line for each line
                             while (true) {
-                                val line = chat.readLine()
+                                val line = withContext(Dispatchers.IO) { chat.readLine() }
+                                if (line.filterNot { it.category == CharCategory.CONTROL }
+                                        .startsWith("=== MC 1.15.1: net/minecraft/util/text/event/ClickEvent.equals")) {
+                                    // This is the reply to our key command
+                                    logger.info { "[IRC Export] Detected final command output. Closing connection." }
+                                    break
+                                }
                                 logger.info { "[DCC] $target: $line" }
                             }
                         }
                     }
+                } catch (e: Throwable) {
+                    logger.error(e) { "Error processing lines" }
                 } finally {
                     withContext(Dispatchers.IO) {
                         chat.close()
-                        if (!finished) {
-                            event.bot.sendIRC().quitServer("Sorry!")
-                        }
+                        event.bot.sendIRC().quitServer(when {
+                            finished -> "Thanks!"
+                            else -> "Sorry!"
+                        })
                     }
                 }
             }
