@@ -184,7 +184,7 @@ class McpIrcExport : CliktCommand(
                             // to have MCPBot reply with output I give it, or this would be more
                             // effective against command file interference)
                             withContext(Dispatchers.IO) {
-                                chat.sendLine("!gm ClickEvent.equals 1.15.1")
+                                chat.sendLine("!register")
                             }
                             logger.info {
                                 "[IRC Export] Transfer finished. Waiting for $target to reply with final command..."
@@ -195,7 +195,7 @@ class McpIrcExport : CliktCommand(
                             while (true) {
                                 val line = withContext(Dispatchers.IO) { chat.readLine() }
                                 if (finished && line.filterNot { it.category == CharCategory.CONTROL }
-                                        .startsWith("=== MC 1.15.1: net/minecraft/util/text/event/ClickEvent.equals")) {
+                                        .startsWith("You need to register your nick before using the bot.")) {
                                     // This is the reply to our key command
                                     logger.info { "[IRC Export] Detected final command output. Closing connection." }
                                     break
